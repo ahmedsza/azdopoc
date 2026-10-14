@@ -98,6 +98,8 @@ Reference: [Microsoft SQL Database Projects getting started](https://learn.micro
 
 [azure-pipelines.yml](azure-pipelines.yml) is intended for **Azure DevOps Services**.
 
+For a minimal web-only build, create a separate Azure Pipeline that points to [azure-pipelines-web.yml](azure-pipelines-web.yml). It builds the .NET website and publishes the deployable output as a pipeline artifact named `web`.
+
 | Stage | Behavior |
 | --- | --- |
 | `Build` | Restore pinned tools/packages, build the solution with SQL analysis and warnings as errors, publish `database` and `web` artifacts. |
