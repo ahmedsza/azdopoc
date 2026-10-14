@@ -1,0 +1,26 @@
+@model IReadOnlyList<Property>
+@{
+    ViewData["Title"] = "Properties";
+    var today = DateOnly.FromDateTime(DateTime.Today);
+    var isOccupied = ViewData["Status"] as string == "occupied";
+    var isVacant = ViewData["Status"] as string == "vacant";
+}
+<div class="page-heading"><div><div class="eyebrow">PORTFOLIO</div><h1>Properties <span class="heading-count">@Model.Count</span></h1></div><a class="button primary" asp-action="Create"><i data-lucide="plus" aria-hidden="true"></i>Add property</a></div>
+<form class="filter-bar" method="get">
+    <div class="search-field"><i data-lucide="search" aria-hidden="true"></i><label class="sr-only" for="search">Search properties</label><input id="search" name="search" value="@ViewData["Search"]" placeholder="Search properties, addresses, cities" maxlength="100" /></div>
+    <label class="sr-only" for="status">Occupancy</label>
+    <select id="status" name="status">
+        <option value="">All properties</option>
+        <option value="occupied" selected="@isOccupied">Occupied</option>
+        <option value="vacant" selected="@isVacant">Vacant</option>
+    </select>
+    <button class="button secondary" type="submit"><i data-lucide="list-filter" aria-hidden="true"></i>Filter</button>
+    <a class="icon-button" asp-action="Index" title="Clear filters" aria-label="Clear filters"><i data-lucide="rotate-ccw" aria-hidden="true"></i></a>
+</form>
+@if (Model.Count == 0) { <div class="empty-state"><i data-lucide="building-2" aria-hidden="true"></i><h2>No properties found</h2><a class="button primary" asp-action="Create">Add property</a></div> }
+else { <div class="table-scroll"><table><thead><tr><th>Property</th><th>Tenant</th><th>Status today</th><th class="number">Asking rent / month</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+@foreach (var property in Model) {
+    var lease = property.Leases.FirstOrDefault(lease => lease.StartDate <= today && lease.EndDate >= today);
+    <tr><td><div class="entity"><span class="entity-icon"><i data-lucide="building-2" aria-hidden="true"></i></span><div><a class="entity-name" asp-action="Edit" asp-route-id="@property.Id">@property.Name</a><small>@property.Address, @property.City</small><small>@property.Bedrooms bedrooms</small></div></div></td><td>@(lease?.Tenant.FullName ?? "Unassigned")</td><td><span class="badge @(lease is null ? "neutral" : "good")">@(lease is null ? "Vacant" : "Occupied")</span></td><td class="number">@property.MonthlyRent.ToString("C2")</td><td><div class="row-actions"><a class="icon-button" asp-controller="Leases" asp-action="Create" asp-route-propertyId="@property.Id" aria-label="New lease for @property.Name" title="New lease"><i data-lucide="file-plus-2" aria-hidden="true"></i></a><a class="icon-button" asp-action="Edit" asp-route-id="@property.Id" aria-label="Edit @property.Name" title="Edit property"><i data-lucide="pencil" aria-hidden="true"></i></a><form method="post" asp-action="Delete" asp-route-id="@property.Id" data-confirm="Remove this property? Linked lease history will prevent removal."><input type="hidden" name="version" value="@Convert.ToBase64String(property.Version)" /><button class="icon-button danger" aria-label="Delete @property.Name" title="Delete property"><i data-lucide="trash-2" aria-hidden="true"></i></button></form></div></td></tr>
+}
+</tbody></table></div> }

@@ -1,0 +1,223 @@
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+
+parameters:
+  - name: deployDatabase
+    displayName: Deploy to the configured shared SQL Server
+    type: boolean
+    default: false
+  - name: deploymentPool
+    type: string
+    default: SqlDeploymentAgents
+  - name: deploymentEnvironment
+    type: string
+    default: property-management-sql
+  - name: deploymentVariableGroup
+    type: string
+    default: PropertyManagement-Sql
+
+variables:
+  buildConfiguration: Release
+  sqlImage: mcr.microsoft.com/mssql/server:2019-CU32-ubuntu-20.04@sha256:7a879e9af3557e81a3b3ad14acd071e3638788387f394d27a9d3404b28e954ce
+
+stages:
+  - stage: Build
+    displayName: Build application and database
+    jobs:
+      - job: Compile
+        pool:
+          vmImage: ubuntu-24.04
+        steps:
+          - checkout: self
+          - task: UseDotNet@2
+            inputs:
+              packageType: sdk
+              version: 10.x
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              dotnet tool restore
+              if ($LASTEXITCODE -ne 0) { throw 'Tool restore failed.' }
+              dotnet restore PropertyManagement.slnx -warnaserror
+              if ($LASTEXITCODE -ne 0) { throw 'Solution restore failed.' }
+              dotnet build PropertyManagement.slnx -c $(buildConfiguration) --no-restore -warnaserror
+              if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+              dotnet publish src/PropertyManagement.Web/PropertyManagement.Web.csproj -c $(buildConfiguration) --no-build --no-restore -o '$(Build.ArtifactStagingDirectory)/web'
+              if ($LASTEXITCODE -ne 0) { throw 'Application packaging failed.' }
+            displayName: Restore, analyze SQL, and compile
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $destination = '$(Build.ArtifactStagingDirectory)/database'
+              foreach ($folder in @('.config', 'scripts', 'database/PropertyManagement.Database/PublishProfiles')) {
+                New-Item -ItemType Directory -Force -Path "$destination/$folder" | Out-Null
+              }
+              Copy-Item database/PropertyManagement.Database/bin/Release/PropertyManagement.Database.dacpac $destination
+              Copy-Item database/PropertyManagement.Database/PublishProfiles/Safe.publish.xml "$destination/database/PropertyManagement.Database/PublishProfiles"
+              Copy-Item scripts/Deploy-Database.ps1 "$destination/scripts"
+              Copy-Item .config/dotnet-tools.json "$destination/.config"
+              Copy-Item global.json $destination
+              @{
+                BuildId = '$(Build.BuildId)'
+                Commit = '$(Build.SourceVersion)'
+                DacpacSha256 = (Get-FileHash "$destination/PropertyManagement.Database.dacpac" -Algorithm SHA256).Hash
+              } | ConvertTo-Json | Set-Content "$destination/artifact.json" -Encoding utf8
+            displayName: Package the immutable DACPAC and deployment tooling
+          - publish: $(Build.ArtifactStagingDirectory)/database
+            artifact: database
+          - publish: $(Build.ArtifactStagingDirectory)/web
+            artifact: web
+
+  - stage: ValidateSql
+    displayName: Validate against isolated SQL Server
+    dependsOn: Build
+    jobs:
+      - job: DatabaseTests
+        timeoutInMinutes: 20
+        pool:
+          vmImage: ubuntu-24.04
+        steps:
+          - checkout: self
+          - download: current
+            artifact: database
+          - task: UseDotNet@2
+            inputs:
+              packageType: sdk
+              version: 10.x
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              dotnet tool restore
+              if ($LASTEXITCODE -ne 0) { throw 'Tool restore failed.' }
+              dotnet restore tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj -warnaserror
+              if ($LASTEXITCODE -ne 0) { throw 'Test restore failed.' }
+              $metadata = Get-Content '$(Pipeline.Workspace)/database/artifact.json' -Raw | ConvertFrom-Json
+              $actual = (Get-FileHash '$(Pipeline.Workspace)/database/PropertyManagement.Database.dacpac' -Algorithm SHA256).Hash
+              if ($actual -cne $metadata.DacpacSha256) { throw 'DACPAC checksum mismatch.' }
+              New-Item -ItemType Directory -Force '$(Build.ArtifactStagingDirectory)/ci-deployment' | Out-Null
+            displayName: Restore test tools and verify downloaded artifact
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $password = 'Y!' + [Guid]::NewGuid().ToString('N') + 'a7'
+              Write-Host "##vso[task.setsecret]$password"
+              $env:MSSQL_SA_PASSWORD = $password
+              $container = 'property-sql-$(Build.BuildId)'
+              docker run --detach --name $container --env ACCEPT_EULA=Y --env MSSQL_PID=Developer --env MSSQL_SA_PASSWORD --publish 127.0.0.1:14333:1433 '$(sqlImage)'
+              if ($LASTEXITCODE -ne 0) { throw 'SQL Server container startup failed.' }
+              $ready = $false
+              for ($attempt = 0; $attempt -lt 40; $attempt++) {
+                docker exec --env "SQLCMDPASSWORD=$password" $container /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 3 -t 3 -Q 'SET NOCOUNT ON; SELECT 1;' *> $null
+                if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+              }
+              if (!$ready) { throw 'SQL Server did not become ready within the bounded connection attempts.' }
+              $connection = "Server=127.0.0.1,14333;Database=PropertyManagement_CI_$(Build.BuildId);User ID=sa;Password=$password;Encrypt=True;TrustServerCertificate=True;Connect Timeout=5"
+              Write-Host "##vso[task.setvariable variable=TestSqlConnection;issecret=true]$connection"
+            displayName: Start a disposable SQL Server 2019 instance
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $artifact = '$(Pipeline.Workspace)/database'
+              $output = '$(Build.ArtifactStagingDirectory)/ci-deployment'
+              & "$artifact/scripts/Deploy-Database.ps1" -Action Preview -Dacpac "$artifact/PropertyManagement.Database.dacpac" -OutputDirectory $output
+              & "$artifact/scripts/Deploy-Database.ps1" -Action Publish -Dacpac "$artifact/PropertyManagement.Database.dacpac" -OutputDirectory $output -ApprovedPlan "$output/plan.json"
+            displayName: Preview and publish the same DACPAC in isolation
+            env:
+              SQL_DEPLOY_CONNECTION_STRING: $(TestSqlConnection)
+          - pwsh: |
+              dotnet test tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj -c $(buildConfiguration) --no-restore -warnaserror --logger 'trx;LogFileName=database-tests.trx' --results-directory '$(Common.TestResultsDirectory)'
+              if ($LASTEXITCODE -ne 0) { throw 'Database or HTTP integration tests failed.' }
+            displayName: Test EF, parameterized SQL, stored procedures, and MVC forms
+            env:
+              TEST_SQL_CONNECTION_STRING: $(TestSqlConnection)
+              DACPAC_PATH: $(Pipeline.Workspace)/database/PropertyManagement.Database.dacpac
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: $(Common.TestResultsDirectory)/**/*.trx
+              failTaskOnFailedTests: true
+              testRunTitle: SQL Server and MVC integration
+          - publish: $(Build.ArtifactStagingDirectory)/ci-deployment
+            artifact: sql-ci-reports
+            condition: succeededOrFailed()
+          - pwsh: |
+              $containers = docker ps --all --filter 'name=^/property-sql-$(Build.BuildId)$' --format '{{.ID}}'
+              if ($LASTEXITCODE -ne 0) { throw 'Could not inspect test containers for cleanup.' }
+              if ($containers) {
+                docker rm --force $containers
+                if ($LASTEXITCODE -ne 0) { throw 'Test container cleanup failed.' }
+              }
+            displayName: Remove the per-run SQL container
+            condition: always()
+
+  - ${{ if eq(parameters.deployDatabase, true) }}:
+      - stage: PlanDeployment
+        displayName: Generate the shared-target review plan
+        dependsOn: ValidateSql
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+        variables:
+          - group: ${{ parameters.deploymentVariableGroup }}
+        pool:
+          name: ${{ parameters.deploymentPool }}
+        jobs:
+          - job: Preview
+            steps:
+              - checkout: none
+              - download: current
+                artifact: database
+              - task: UseDotNet@2
+                inputs:
+                  packageType: sdk
+                  version: 10.x
+              - pwsh: |
+                  $ErrorActionPreference = 'Stop'
+                  dotnet tool restore
+                  if ($LASTEXITCODE -ne 0) { throw 'Tool restore failed.' }
+                  $metadata = Get-Content artifact.json -Raw | ConvertFrom-Json
+                  if ((Get-FileHash PropertyManagement.Database.dacpac -Algorithm SHA256).Hash -cne $metadata.DacpacSha256) { throw 'DACPAC checksum mismatch.' }
+                  ./scripts/Deploy-Database.ps1 -Action Preview -Dacpac PropertyManagement.Database.dacpac -OutputDirectory '$(Build.ArtifactStagingDirectory)/sql-target-plan'
+                workingDirectory: $(Pipeline.Workspace)/database
+                displayName: Generate report and script without changing the target
+                env:
+                  SQL_DEPLOY_CONNECTION_STRING: $(SqlDeploymentConnectionString)
+              - publish: $(Build.ArtifactStagingDirectory)/sql-target-plan
+                artifact: sql-target-plan
+
+      - stage: DeployDatabase
+        displayName: Publish the approved database artifact
+        dependsOn: PlanDeployment
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+        lockBehavior: sequential
+        variables:
+          - group: ${{ parameters.deploymentVariableGroup }}
+        pool:
+          name: ${{ parameters.deploymentPool }}
+        jobs:
+          - deployment: PublishDatabase
+            environment: ${{ parameters.deploymentEnvironment }}
+            strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - checkout: none
+                    - download: current
+                      artifact: database
+                    - download: current
+                      artifact: sql-target-plan
+                    - task: UseDotNet@2
+                      inputs:
+                        packageType: sdk
+                        version: 10.x
+                    - pwsh: |
+                        $ErrorActionPreference = 'Stop'
+                        dotnet tool restore
+                        if ($LASTEXITCODE -ne 0) { throw 'Tool restore failed.' }
+                        $metadata = Get-Content artifact.json -Raw | ConvertFrom-Json
+                        if ((Get-FileHash PropertyManagement.Database.dacpac -Algorithm SHA256).Hash -cne $metadata.DacpacSha256) { throw 'DACPAC checksum mismatch.' }
+                        ./scripts/Deploy-Database.ps1 -Action Publish -Dacpac PropertyManagement.Database.dacpac -ApprovedPlan '$(Pipeline.Workspace)/sql-target-plan/plan.json' -OutputDirectory '$(Build.ArtifactStagingDirectory)/sql-published-plan'
+                      workingDirectory: $(Pipeline.Workspace)/database
+                      displayName: Recheck the approved plan and publish without rebuilding
+                      env:
+                        SQL_DEPLOY_CONNECTION_STRING: $(SqlDeploymentConnectionString)
+                    - publish: $(Build.ArtifactStagingDirectory)/sql-published-plan
+                      artifact: sql-published-plan
+                      condition: succeededOrFailed()

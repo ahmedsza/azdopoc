@@ -1,0 +1,9 @@
+CREATE TABLE [dbo].[Tenants]
+(
+    [Id] INT IDENTITY(1,1) NOT NULL CONSTRAINT [PK_Tenants] PRIMARY KEY,
+    [FullName] NVARCHAR(120) NOT NULL,
+    [Email] NVARCHAR(200) NOT NULL,
+    [Phone] NVARCHAR(40) NOT NULL,
+    [Version] ROWVERSION NOT NULL,
+    CONSTRAINT [CK_Tenants_FullName] CHECK (LEN(LTRIM(RTRIM([FullName]))) > 0)
+);

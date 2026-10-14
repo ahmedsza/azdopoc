@@ -1,0 +1,16 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <TargetDatabaseName>PropertyManagementDemo</TargetDatabaseName>
+    <TargetConnectionString>Data Source=(localdb)\MSSQLLocalDB;Integrated Security=True;Encrypt=True;TrustServerCertificate=True</TargetConnectionString>
+    <BlockOnPossibleDataLoss>True</BlockOnPossibleDataLoss>
+    <DropObjectsNotInSource>False</DropObjectsNotInSource>
+    <DropConstraintsNotInSource>False</DropConstraintsNotInSource>
+    <DropIndexesNotInSource>False</DropIndexesNotInSource>
+    <DropDmlTriggersNotInSource>False</DropDmlTriggersNotInSource>
+    <CreateNewDatabase>False</CreateNewDatabase>
+    <AllowIncompatiblePlatform>False</AllowIncompatiblePlatform>
+    <VerifyDeployment>True</VerifyDeployment>
+    <ScriptDatabaseOptions>False</ScriptDatabaseOptions>
+    <CommandTimeout>60</CommandTimeout>
+  </PropertyGroup>
+</Project>

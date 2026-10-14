@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/database/">
+    <Project Path="database/PropertyManagement.Database/PropertyManagement.Database.sqlproj">
+      <Build Solution="*|*" Project="true" />
+    </Project>
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/PropertyManagement.Web/PropertyManagement.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj" />
+  </Folder>
+</Solution>

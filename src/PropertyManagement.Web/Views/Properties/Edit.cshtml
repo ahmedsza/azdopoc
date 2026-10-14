@@ -1,0 +1,10 @@
+@model PropertyInput
+@{ ViewData["Title"] = Model.Id == 0 ? "Add property" : "Edit property"; }
+<div class="page-heading"><div><a class="back-link" asp-action="Index"><i data-lucide="arrow-left" aria-hidden="true"></i>Properties</a><h1>@ViewData["Title"]</h1></div></div>
+<form method="post" asp-action="Edit" class="editor-form">
+    <input asp-for="Id" type="hidden" /><input asp-for="Version" type="hidden" />
+    <div asp-validation-summary="All" class="validation" role="alert"></div>
+    <h2>Property details</h2>
+    <div class="form-grid"><div class="field full"><label asp-for="Name"></label><input asp-for="Name" required maxlength="120" autocomplete="off" /><span asp-validation-for="Name"></span></div><div class="field full"><label asp-for="Address"></label><input asp-for="Address" required maxlength="240" autocomplete="street-address" /><span asp-validation-for="Address"></span></div><div class="field"><label asp-for="City"></label><input asp-for="City" required maxlength="100" autocomplete="address-level2" /><span asp-validation-for="City"></span></div><div class="field"><label asp-for="Bedrooms"></label><input asp-for="Bedrooms" type="number" min="0" max="50" required /><span asp-validation-for="Bedrooms"></span></div><div class="field"><label asp-for="MonthlyRent"></label><input asp-for="MonthlyRent" type="number" min="0.01" max="999999999.99" step="0.01" required /><span asp-validation-for="MonthlyRent"></span></div></div>
+    <div class="form-actions"><button class="button primary"><i data-lucide="check" aria-hidden="true"></i>Save property</button><a class="button secondary" asp-action="Index">Cancel</a></div>
+</form>

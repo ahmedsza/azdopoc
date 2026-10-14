@@ -1,0 +1,29 @@
+@model DashboardViewModel
+@{
+    ViewData["Title"] = "Overview";
+    var occupancy = Model.PropertyCount == 0 ? 0 : (int)Math.Round(Model.OccupiedCount * 100m / Model.PropertyCount);
+    var collection = Model.ExpectedRent == 0 ? 0 : (int)Math.Min(100, Math.Round(Model.CollectedRent * 100m / Model.ExpectedRent));
+}
+<div class="page-heading"><div><div class="eyebrow">YOUR PORTFOLIO, AT A GLANCE</div><h1>Portfolio overview</h1></div><a class="button primary" asp-controller="Rent" asp-action="Record"><i data-lucide="plus" aria-hidden="true"></i>Record payment</a></div>
+<div class="overview-banner"><div><span class="eyebrow">RESIDENTIAL PORTFOLIO</span><h2>@Model.Month.ToString("MMMM yyyy")</h2><div class="banner-facts"><span><i data-lucide="building-2" aria-hidden="true"></i>@Model.PropertyCount properties</span><span><i data-lucide="users" aria-hidden="true"></i>@Model.TenantCount tenants</span></div></div><img src="~/property.jpg" alt="A light-filled contemporary residential home" width="900" height="550" /></div>
+<div class="section-heading"><h2>Monthly performance</h2><form class="month-filter" method="get"><label class="sr-only" for="month">Rental month</label><input id="month" name="month" type="month" value="@Model.Month.ToString("yyyy-MM")" required /><button class="icon-button" aria-label="Apply month" title="Apply month"><i data-lucide="arrow-right" aria-hidden="true"></i></button></form></div>
+<section class="metrics" aria-label="Portfolio metrics">
+    <div class="metric"><span class="metric-label">Expected rent<i data-lucide="calendar-days" aria-hidden="true"></i></span><strong>@Model.ExpectedRent.ToString("C0")</strong><small>@Model.Month.ToString("MMMM yyyy")</small></div>
+    <div class="metric"><span class="metric-label">Rent collected<i data-lucide="arrow-down-left" aria-hidden="true"></i></span><strong>@Model.CollectedRent.ToString("C0")</strong><small><span class="positive">@collection%</span> of expected rent</small></div>
+    <div class="metric"><span class="metric-label">Outstanding<i data-lucide="clock-3" aria-hidden="true"></i></span><strong>@Model.OutstandingRent.ToString("C0")</strong><small><a asp-controller="Rent" asp-action="Index" asp-route-month="@Model.Month.ToString("yyyy-MM")">View rent ledger <span aria-hidden="true">&rarr;</span></a></small></div>
+    <div class="metric"><span class="metric-label">Occupancy today<i data-lucide="door-open" aria-hidden="true"></i></span><strong>@occupancy<span class="unit">%</span></strong><small>@Model.OccupiedCount of @Model.PropertyCount properties occupied</small></div>
+</section>
+<section><div class="section-heading"><h2>Properties</h2><a class="text-link" asp-controller="Properties" asp-action="Index">All properties<i data-lucide="arrow-up-right" aria-hidden="true"></i></a></div>
+@if (Model.Properties.Count == 0) { <div class="empty-state"><i data-lucide="building-2" aria-hidden="true"></i><h3>No properties yet</h3><a class="button primary" asp-controller="Properties" asp-action="Create">Add property</a></div> }
+else {
+    <div class="table-scroll"><table><thead><tr><th>Property</th><th>Tenant</th><th>Status</th><th class="number">Asking rent / month</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+    @foreach (var property in Model.Properties) {
+        <tr><td><div class="entity"><span class="entity-icon"><i data-lucide="building-2" aria-hidden="true"></i></span><div><a class="entity-name" asp-controller="Properties" asp-action="Edit" asp-route-id="@property.Id">@property.Name</a><small>@property.City / @property.Bedrooms bedrooms</small></div></div></td><td>@(property.TenantName ?? "Unassigned")</td><td><span class="badge @(property.TenantName is null ? "neutral" : "good")">@(property.TenantName is null ? "Vacant" : "Occupied")</span></td><td class="number">@property.MonthlyRent.ToString("C0")</td><td class="actions"><a class="icon-button" asp-controller="Properties" asp-action="Edit" asp-route-id="@property.Id" aria-label="Edit @property.Name" title="Edit property"><i data-lucide="arrow-up-right" aria-hidden="true"></i></a></td></tr>
+    }
+    </tbody></table></div>
+}
+</section>
+<section><div class="section-heading"><h2>Recent payments</h2><a class="text-link" asp-controller="Rent" asp-action="Index" asp-route-month="@Model.Month.ToString("yyyy-MM")">Rent ledger<i data-lucide="arrow-up-right" aria-hidden="true"></i></a></div>
+@if (Model.RecentPayments.Count == 0) { <div class="empty-inline">No payments recorded for @Model.Month.ToString("MMMM yyyy").</div> }
+else { <div class="payment-list">@foreach (var payment in Model.RecentPayments) { <div class="payment-item"><span class="payment-symbol"><i data-lucide="arrow-down-left" aria-hidden="true"></i></span><div><strong>@payment.TenantName</strong><small>@payment.PropertyName / @payment.Reference</small></div><div class="payment-amount"><strong>@payment.Amount.ToString("C2")</strong><small>@payment.PaidOn.ToString("dd MMM yyyy")</small></div></div> }</div> }
+</section>
