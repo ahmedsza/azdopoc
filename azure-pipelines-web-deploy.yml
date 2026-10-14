@@ -1,0 +1,23 @@
+trigger: none
+pr: none
+
+resources:
+  pipelines:
+    - pipeline: webBuild
+      source: azure-pipelines-web
+      trigger:
+        branches:
+          include:
+            - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: none
+
+  - download: webBuild
+    artifact: web
+
+  - script: echo "Web artifact downloaded. Deployment placeholder completed."
+    displayName: Deployment placeholder
