@@ -98,9 +98,9 @@ Reference: [Microsoft SQL Database Projects getting started](https://learn.micro
 
 [azure-pipelines.yml](azure-pipelines.yml) is intended for **Azure DevOps Services**.
 
-For a minimal web-only build, create a separate Azure Pipeline that points to [azure-pipelines-web.yml](azure-pipelines-web.yml). It builds the .NET website and publishes the deployable output as a pipeline artifact named `web`.
+For a minimal web-only build, create a separate Azure Pipeline that points to [azure-pipelines-web.yml](azure-pipelines-web.yml). It builds the .NET website and publishes the deployable output as `web.zip` in a pipeline artifact named `web`.
 
-Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `main` build from the `azure-pipelines-web` pipeline, downloads its `web` artifact, and currently prints a placeholder deployment message.
+Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `main` build from the `azure-pipelines-web` pipeline, downloads its `web` artifact, extracts `web.zip` into a `demo` directory, and lists the extracted files.
 
 | Stage | Behavior |
 | --- | --- |

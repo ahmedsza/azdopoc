@@ -25,8 +25,17 @@ steps:
   - script: dotnet publish $(webProject) --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/web
     displayName: Publish website
 
+  - task: ArchiveFiles@2
+    displayName: Package website
+    inputs:
+      rootFolderOrFile: $(Build.ArtifactStagingDirectory)/web
+      includeRootFolder: false
+      archiveType: zip
+      archiveFile: $(Build.ArtifactStagingDirectory)/package/web.zip
+      replaceExistingArchive: true
+
   - task: PublishPipelineArtifact@1
     displayName: Publish website artifact
     inputs:
-      targetPath: $(Build.ArtifactStagingDirectory)/web
+      targetPath: $(Build.ArtifactStagingDirectory)/package
       artifactName: web

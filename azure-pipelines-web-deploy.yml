@@ -19,5 +19,10 @@ steps:
   - download: webBuild
     artifact: web
 
-  - script: echo "Web artifact downloaded. Deployment placeholder completed."
-    displayName: Deployment placeholder
+  - script: |
+      mkdir -p "$(Pipeline.Workspace)/demo"
+      unzip "$(Pipeline.Workspace)/webBuild/web/web.zip" -d "$(Pipeline.Workspace)/demo"
+    displayName: Extract website to demo
+
+  - script: find "$(Pipeline.Workspace)/demo" -type f -print
+    displayName: List demo files
