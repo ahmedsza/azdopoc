@@ -24,109 +24,120 @@ variables:
   - name: sitePort
     value: 8080
 
-steps:
-  - checkout: none
+stages:
+  - stage: Deploy
+    displayName: Deploy website
+    lockBehavior: sequential
+    jobs:
+      - deployment: DeployWebsite
+        displayName: Deploy website to IIS
+        environment: property-management-sql
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+              - checkout: none
 
-  - download: webBuild
-    artifact: web
+              - download: webBuild
+                artifact: web
 
-  - task: PowerShell@2
-    displayName: Extract website to demo
-    inputs:
-      targetType: inline
-      pwsh: false
-      script: |
-        $demo = Join-Path "$(Pipeline.Workspace)" "demo"
-        if (Test-Path $demo) { Remove-Item $demo -Recurse -Force }
-        New-Item -ItemType Directory -Path $demo -Force | Out-Null
-        Expand-Archive -Path "$(Pipeline.Workspace)\webBuild\web\web.zip" -DestinationPath $demo -Force
+              - task: PowerShell@2
+                displayName: Extract website to demo
+                inputs:
+                  targetType: inline
+                  pwsh: false
+                  script: |
+                    $demo = Join-Path "$(Pipeline.Workspace)" "demo"
+                    if (Test-Path $demo) { Remove-Item $demo -Recurse -Force }
+                    New-Item -ItemType Directory -Path $demo -Force | Out-Null
+                    Expand-Archive -Path "$(Pipeline.Workspace)\webBuild\web\web.zip" -DestinationPath $demo -Force
 
-  - task: PowerShell@2
-    displayName: Ensure $(sitePath) exists
-    inputs:
-      targetType: inline
-      pwsh: false
-      script: New-Item -ItemType Directory -Path "$(sitePath)" -Force | Out-Null
+              - task: PowerShell@2
+                displayName: Ensure $(sitePath) exists
+                inputs:
+                  targetType: inline
+                  pwsh: false
+                  script: New-Item -ItemType Directory -Path "$(sitePath)" -Force | Out-Null
 
-  # Creates the site and app pool on first run; updates them on later runs.
-  - task: IISWebAppManagementOnMachineGroup@0
-    displayName: Create or update IIS website and app pool
-    inputs:
-      IISDeploymentType: IISWebsite
-      ActionIISWebsite: CreateOrUpdateWebsite
-      WebsiteName: $(siteName)
-      WebsitePhysicalPath: $(sitePath)
-      WebsitePhysicalPathAuth: WebsiteUserPassThrough
-      AddBinding: true
-      Bindings: '{"bindings":[{"protocol":"http","ipAddress":"All Unassigned","hostname":"","port":"$(sitePort)","sslThumbprint":"","sniFlag":false}]}'
-      CreateOrUpdateAppPoolForWebsite: true
-      AppPoolNameForWebsite: $(appPoolName)
-      DotNetVersionForWebsite: No Managed Code
-      PipeLineModeForWebsite: Integrated
-      AppPoolIdentityForWebsite: ApplicationPoolIdentity
+              # Creates the site and app pool on first run; updates them on later runs.
+              - task: IISWebAppManagementOnMachineGroup@0
+                displayName: Create or update IIS website and app pool
+                inputs:
+                  IISDeploymentType: IISWebsite
+                  ActionIISWebsite: CreateOrUpdateWebsite
+                  WebsiteName: $(siteName)
+                  WebsitePhysicalPath: $(sitePath)
+                  WebsitePhysicalPathAuth: WebsiteUserPassThrough
+                  AddBinding: true
+                  Bindings: '{"bindings":[{"protocol":"http","ipAddress":"All Unassigned","hostname":"","port":"$(sitePort)","sslThumbprint":"","sniFlag":false}]}'
+                  CreateOrUpdateAppPoolForWebsite: true
+                  AppPoolNameForWebsite: $(appPoolName)
+                  DotNetVersionForWebsite: No Managed Code
+                  PipeLineModeForWebsite: Integrated
+                  AppPoolIdentityForWebsite: ApplicationPoolIdentity
 
-  - task: IISWebAppManagementOnMachineGroup@0
-    displayName: Stop app pool
-    inputs:
-      IISDeploymentType: IISApplicationPool
-      ActionIISApplicationPool: StopAppPool
-      StartStopRecycleAppPoolName: $(appPoolName)
+              - task: IISWebAppManagementOnMachineGroup@0
+                displayName: Stop app pool
+                inputs:
+                  IISDeploymentType: IISApplicationPool
+                  ActionIISApplicationPool: StopAppPool
+                  StartStopRecycleAppPoolName: $(appPoolName)
 
-  - task: PowerShell@2
-    displayName: Copy extracted files to $(sitePath)
-    inputs:
-      targetType: inline
-      pwsh: false
-      script: |
-        Start-Sleep -Seconds 5  # give w3wp time to release file locks
-        Copy-Item -Path (Join-Path "$(Pipeline.Workspace)" "demo\*") -Destination "$(sitePath)" -Recurse -Force
-        icacls "$(sitePath)" /grant "IIS AppPool\$(appPoolName):(OI)(CI)RX" /T /Q | Out-Null
+              - task: PowerShell@2
+                displayName: Copy extracted files to $(sitePath)
+                inputs:
+                  targetType: inline
+                  pwsh: false
+                  script: |
+                    Start-Sleep -Seconds 5  # give w3wp time to release file locks
+                    Copy-Item -Path (Join-Path "$(Pipeline.Workspace)" "demo\*") -Destination "$(sitePath)" -Recurse -Force
+                    icacls "$(sitePath)" /grant "IIS AppPool\$(appPoolName):(OI)(CI)RX" /T /Q | Out-Null
 
-  - task: PowerShell@2
-    displayName: Configure website database connection
-    inputs:
-      targetType: inline
-      pwsh: false
-      script: |
-        $ErrorActionPreference = 'Stop'
-        $connectionString = $env:WEB_SQL_CONNECTION_STRING
-        if ([string]::IsNullOrWhiteSpace($connectionString) -or $connectionString -match '^\$\(.+\)$') {
-          throw 'Configure the secret SqlDeploymentConnectionString in the PropertyManagement-Sql variable group.'
-        }
+              - task: PowerShell@2
+                displayName: Configure website database connection
+                inputs:
+                  targetType: inline
+                  pwsh: false
+                  script: |
+                    $ErrorActionPreference = 'Stop'
+                    $connectionString = $env:WEB_SQL_CONNECTION_STRING
+                    if ([string]::IsNullOrWhiteSpace($connectionString) -or $connectionString -match '^\$\(.+\)$') {
+                      throw 'Configure the secret SqlDeploymentConnectionString in the PropertyManagement-Sql variable group.'
+                    }
 
-        $path = Join-Path "$(sitePath)" "appsettings.json"
-        $settings = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-        if ($null -eq $settings.ConnectionStrings) {
-          $settings | Add-Member -NotePropertyName ConnectionStrings -NotePropertyValue ([pscustomobject]@{}) -Force
-        }
-        $settings.ConnectionStrings | Add-Member -NotePropertyName PropertyManagement -NotePropertyValue $connectionString -Force
-        $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding UTF8
-    env:
-      WEB_SQL_CONNECTION_STRING: $(SqlDeploymentConnectionString)
+                    $path = Join-Path "$(sitePath)" "appsettings.json"
+                    $settings = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+                    if ($null -eq $settings.ConnectionStrings) {
+                      $settings | Add-Member -NotePropertyName ConnectionStrings -NotePropertyValue ([pscustomobject]@{}) -Force
+                    }
+                    $settings.ConnectionStrings | Add-Member -NotePropertyName PropertyManagement -NotePropertyValue $connectionString -Force
+                    $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding UTF8
+                env:
+                  WEB_SQL_CONNECTION_STRING: $(SqlDeploymentConnectionString)
 
-  - task: IISWebAppManagementOnMachineGroup@0
-    displayName: Start app pool
-    condition: always()
-    inputs:
-      IISDeploymentType: IISApplicationPool
-      ActionIISApplicationPool: StartAppPool
-      StartStopRecycleAppPoolName: $(appPoolName)
+              - task: IISWebAppManagementOnMachineGroup@0
+                displayName: Start app pool
+                condition: always()
+                inputs:
+                  IISDeploymentType: IISApplicationPool
+                  ActionIISApplicationPool: StartAppPool
+                  StartStopRecycleAppPoolName: $(appPoolName)
 
-  - task: PowerShell@2
-    displayName: Smoke test http://localhost:$(sitePort)
-    inputs:
-      targetType: inline
-      pwsh: false
-      script: |
-        $url = "http://localhost:$(sitePort)/"
-        for ($i = 1; $i -le 5; $i++) {
-          try {
-            $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
-            Write-Host "$url returned HTTP $($r.StatusCode)"
-            exit 0
-          } catch {
-            Write-Host "Attempt $i failed: $($_.Exception.Message)"
-            Start-Sleep -Seconds 5
-          }
-        }
-        Write-Host "##vso[task.logissue type=warning]Smoke test did not get a successful response from $url"
+              - task: PowerShell@2
+                displayName: Smoke test http://localhost:$(sitePort)
+                inputs:
+                  targetType: inline
+                  pwsh: false
+                  script: |
+                    $url = "http://localhost:$(sitePort)/"
+                    for ($i = 1; $i -le 5; $i++) {
+                      try {
+                        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+                        Write-Host "$url returned HTTP $($r.StatusCode)"
+                        exit 0
+                      } catch {
+                        Write-Host "Attempt $i failed: $($_.Exception.Message)"
+                        Start-Sleep -Seconds 5
+                      }
+                    }
+                    Write-Host "##vso[task.logissue type=warning]Smoke test did not get a successful response from $url"
