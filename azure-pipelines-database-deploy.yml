@@ -29,6 +29,7 @@ stages:
 
           - task: UseDotNet@2
             displayName: Install .NET SDK
+            enabled: false
             inputs:
               packageType: sdk
               version: 10.0.x
@@ -84,6 +85,7 @@ stages:
 
                 - task: UseDotNet@2
                   displayName: Install .NET SDK
+                  enabled: false
                   inputs:
                     packageType: sdk
                     version: 10.0.x
