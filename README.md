@@ -150,13 +150,25 @@ The deployment identity needs DacFx metadata access and permission to perform th
 
 ## Tests
 
+### Simple Unit Tests
+
+[ArithmeticTests.cs](tests/PropertyManagement.Tests/ArithmeticTests.cs) contains introductory, data-driven MSTest examples for addition, subtraction, multiplication, division (including fractional results), and integer division by zero. These examples test arithmetic operators, not application business logic, and do not require SQL Server or a DACPAC.
+
+Run only the unit tests:
+
+```powershell
+dotnet test tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj -c Release --filter "TestCategory=Unit" -warnaserror
+```
+
+### Database Integration Tests
+
 ```powershell
 dotnet build database/PropertyManagement.Database/PropertyManagement.Database.sqlproj -c Release -warnaserror
 dotnet tool restore
 dotnet test tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj -c Release -warnaserror
 ```
 
-Tests deploy the DACPAC to a generated `PropertyManagement_Tests_<guid>` database, create their own fixtures, and drop only that database afterward. They never reset the demo database. The default is local Windows authentication; set `TEST_SQL_CONNECTION_STRING` for a different disposable test server. Its catalog is always replaced with a unique test database name. The test identity needs database creation/deletion permissions.
+Database integration tests deploy the DACPAC to a generated `PropertyManagement_Tests_<guid>` database, create their own fixtures, and drop only that database afterward. They never reset the demo database. The default is local Windows authentication; set `TEST_SQL_CONNECTION_STRING` for a different disposable test server. Its catalog is always replaced with a unique test database name. The test identity needs database creation/deletion permissions.
 
 `DACPAC_PATH` selects an already-built artifact, as used in CI. The additive/destructive deployment test builds small isolated probe DACPACs, not a replacement application deployment artifact. An actual previous-release upgrade baseline should be added when a released DACPAC exists.
 
