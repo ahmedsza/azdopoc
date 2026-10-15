@@ -1,17 +1,9 @@
 (() => {
     window.lucide?.createIcons();
     const themeButton = document.getElementById("theme-toggle");
-    try {
-        const saved = sessionStorage.getItem("yardTheme");
-        if (saved && !new URLSearchParams(location.search).has("scoutTheme")) {
-            document.documentElement.setAttribute("data-theme", saved);
-        }
-    } catch { }
     themeButton?.addEventListener("click", () => {
-        const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", theme);
-        themeButton.setAttribute("aria-pressed", String(theme === "dark"));
-        try { sessionStorage.setItem("yardTheme", theme); } catch { }
+        const enabled = themeButton.getAttribute("aria-checked") !== "true";
+        themeButton.setAttribute("aria-checked", String(enabled));
     });
     document.querySelectorAll('form[method="post"]').forEach(form => {
         form.addEventListener("submit", event => {

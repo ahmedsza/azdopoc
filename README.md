@@ -36,6 +36,8 @@ dotnet run --project src/PropertyManagement.Web/PropertyManagement.Web.csproj -c
 
 Open **http://localhost:5180**. If that port is occupied, append `-- --urls http://localhost:5181` to the run command.
 
+The top-right **Dark mode** switch is currently a UI-only preview. It toggles on and off with mouse or keyboard, resets on page load, and does not change or save the page theme.
+
 The fictional seed contains six properties, five tenants, five leases, and three payments. Dates are relative to the month in which it first runs. It only runs against `PropertyManagementDemo`, inserts transactionally into an empty portfolio, and skips a database that already contains properties or tenants. It never resets existing data.
 
 The app deliberately has **no sign-in**. Keep it on localhost with fictional data. Authentication, authorization, HTTPS deployment, backups, and production operational controls are prerequisites for any shared use.
