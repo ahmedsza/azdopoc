@@ -134,6 +134,7 @@ stages:
                       try {
                         $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
                         Write-Host "$url returned HTTP $($r.StatusCode)"
+                        Write-Host "##vso[task.setvariable variable=WebSmokeTestSucceeded]true"
                         exit 0
                       } catch {
                         Write-Host "Attempt $i failed: $($_.Exception.Message)"
@@ -141,3 +142,142 @@ stages:
                       }
                     }
                     Write-Host "##vso[task.logissue type=warning]Smoke test did not get a successful response from $url"
+
+              - task: PowerShell@2
+                displayName: Prepare release notes output
+                condition: and(succeeded(), eq(variables['WebSmokeTestSucceeded'], 'true'))
+                inputs:
+                  targetType: inline
+                  pwsh: true
+                  script: New-Item -ItemType Directory -Path '$(Build.ArtifactStagingDirectory)/release-notes' -Force | Out-Null
+
+              - task: XplatGenerateReleaseNotes@4
+                displayName: Generate web deployment release notes
+                condition: and(succeeded(), eq(variables['WebSmokeTestSucceeded'], 'true'))
+                inputs:
+                  outputfile: '$(Build.ArtifactStagingDirectory)/release-notes/release-notes.md'
+                  templateLocation: Inline
+                  inlinetemplate: |
+                    # Web Deployment $(Build.BuildNumber)
+
+                    - **Deployment run:** [$(Build.BuildNumber)]($(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))
+                    - **Environment:** property-management-sql
+                    - **Site:** http://$(siteName):$(sitePort)
+                    - **Web build:** [$(resources.pipeline.webBuild.runName)]($(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(resources.pipeline.webBuild.runID))
+                    - **Source branch:** `$(resources.pipeline.webBuild.sourceBranch)`
+                    - **Source commit:** `$(resources.pipeline.webBuild.sourceCommit)`
+                    - **Completed:** {{buildDetails.finishTime}}
+                    {{#if compareBuildDetails}}
+                    - **Previous successful deployment:** {{compareBuildDetails.buildNumber}}
+                    {{/if}}
+
+                    ## Work Items ({{workItems.length}})
+                    {{#forEach workItems}}
+                    - [{{this.id}}]({{replace this.url "_apis/wit/workItems" "_workitems/edit"}}) - {{lookup this.fields 'System.Title'}}
+                    {{/forEach}}
+
+                    ## Pull Requests ({{pullRequests.length}})
+                    {{#forEach pullRequests}}
+                    - [#{{this.pullRequestId}}]({{replace (replace this.url "_apis/git/repositories" "_git") "pullRequests" "pullRequest"}}) - {{this.title}}
+                    {{/forEach}}
+
+                    ## Commits ({{commits.length}})
+                    {{#forEach commits}}
+                    - `{{truncate this.id 7}}` - {{get_only_message_firstline this.message}} ({{this.author.displayName}})
+                    {{/forEach}}
+
+                    ## Consumed Artifacts ({{consumedArtifacts.length}})
+                    | Type | Version | Commits | Work items |
+                    | --- | --- | ---: | ---: |
+                    {{#forEach consumedArtifacts}}
+                    | {{this.artifactType}} | {{this.versionName}} | {{#if this.commits}}{{this.commits.length}}{{else}}0{{/if}} | {{#if this.workitems}}{{this.workitems.length}}{{else}}0{{/if}} |
+                    {{/forEach}}
+                  checkStage: true
+                  overrideStageName: Deploy
+                  recursivelyCheckConsumedArtifacts: true
+                  replaceFile: true
+                  stopOnError: true
+                  getParentsAndChildren: false
+                  getAllParents: false
+                  getIndirectPullRequests: false
+                  searchCrossProjectForPRs: false
+                  dumpPayloadToConsole: false
+                  dumpPayloadToFile: false
+
+              - task: PublishPipelineArtifact@1
+                displayName: Publish web deployment release notes
+                condition: and(succeeded(), eq(variables['WebSmokeTestSucceeded'], 'true'))
+                inputs:
+                  targetPath: '$(Build.ArtifactStagingDirectory)/release-notes'
+                  artifactName: release-notes
+
+              - task: PowerShell@2
+                displayName: Publish release notes to project wiki
+                condition: and(succeeded(), eq(variables['WebSmokeTestSucceeded'], 'true'))
+                inputs:
+                  targetType: inline
+                  pwsh: true
+                  script: |
+                    $ErrorActionPreference = 'Stop'
+                    if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) {
+                      throw 'System.AccessToken is unavailable. Grant the pipeline Build Service identity access to the project wiki.'
+                    }
+
+                    $project = '$(System.TeamProject)'
+                    $encodedProject = [Uri]::EscapeDataString($project)
+                    $encodedRepository = [Uri]::EscapeDataString("$project.wiki")
+                    $wikiUrl = "$(System.CollectionUri)$encodedProject/_git/$encodedRepository"
+                    $wikiRoot = Join-Path '$(Agent.TempDirectory)' 'property-management-wiki'
+                    $pageName = 'Web-Build-$(resources.pipeline.webBuild.runID)-Deployment-$(Build.BuildId)'
+                    $pageDirectory = Join-Path $wikiRoot 'Web-Deployment-Release-Notes'
+                    $pagePath = Join-Path $pageDirectory "$pageName.md"
+                    $indexPath = Join-Path $wikiRoot 'Web-Deployment-Release-Notes.md'
+
+                    if (Test-Path $wikiRoot) { Remove-Item $wikiRoot -Recurse -Force }
+                    $env:GIT_CONFIG_COUNT = '1'
+                    $env:GIT_CONFIG_KEY_0 = 'http.extraheader'
+                    $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
+                    git clone --branch wikiMaster --single-branch $wikiUrl $wikiRoot
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not clone the provisioned project wiki.' }
+
+                    New-Item -ItemType Directory -Path $pageDirectory -Force | Out-Null
+                    Copy-Item '$(Build.ArtifactStagingDirectory)/release-notes/release-notes.md' $pagePath -Force
+
+                    $pages = Get-ChildItem $pageDirectory -Filter '*.md' |
+                      Sort-Object BaseName -Descending |
+                      Select-Object -ExpandProperty BaseName
+                    $index = @(
+                      '# Web Deployment Release Notes'
+                      ''
+                      'Release notes are generated after each successful IIS deployment and smoke test.'
+                      ''
+                    )
+                    $index += $pages | ForEach-Object { "- [$($_)](Web-Deployment-Release-Notes/$($_))" }
+                    $index | Set-Content $indexPath -Encoding utf8
+                    $pages | Set-Content (Join-Path $pageDirectory '.order') -Encoding utf8
+
+                    $rootOrderPath = Join-Path $wikiRoot '.order'
+                    $rootOrder = if (Test-Path $rootOrderPath) { @(Get-Content $rootOrderPath) } else { @() }
+                    if ($rootOrder -notcontains 'Web-Deployment-Release-Notes') {
+                      $rootOrder += 'Web-Deployment-Release-Notes'
+                      $rootOrder | Set-Content $rootOrderPath -Encoding utf8
+                    }
+
+                    git -C $wikiRoot config user.email 'azure-pipelines@local'
+                    git -C $wikiRoot config user.name 'Azure Pipelines'
+                    git -C $wikiRoot add --all
+                    git -C $wikiRoot diff --cached --quiet
+                    if ($LASTEXITCODE -eq 0) {
+                      Write-Host 'The wiki already contains these release notes.'
+                      exit 0
+                    }
+                    if ($LASTEXITCODE -ne 1) { throw 'Could not inspect the staged wiki changes.' }
+
+                    git -C $wikiRoot commit -m "[skip ci] Publish web deployment notes for build $(resources.pipeline.webBuild.runID)"
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not commit the wiki update.' }
+                    git -C $wikiRoot pull --rebase origin wikiMaster
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not rebase the wiki update.' }
+                    git -C $wikiRoot push origin HEAD:wikiMaster
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not push the wiki update.' }
+                env:
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
