@@ -11,7 +11,7 @@ resources:
             - main
 
 pool:
-  name: Self Hosted
+  name: SelfHosted
 
 steps:
   - checkout: none
