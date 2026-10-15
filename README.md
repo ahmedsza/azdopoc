@@ -102,7 +102,7 @@ Reference: [Microsoft SQL Database Projects getting started](https://learn.micro
 
 For a minimal web-only build, create a separate Azure Pipeline that points to [azure-pipelines-web.yml](azure-pipelines-web.yml). It builds the .NET website and publishes the deployable output as `web.zip` in a pipeline artifact named `web`.
 
-Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `main` build from the `azure-pipelines-web` pipeline on the `SelfHosted` pool. It extracts `web.zip`, creates or updates the IIS website and app pool, copies the website to `D:\jhbdemo`, configures its database connection, and starts the app pool.
+Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `master` build from the `azure-pipelines-web` pipeline on the `SelfHosted` pool. It extracts `web.zip`, creates or updates the IIS website and app pool, copies the website to `D:\jhbdemo`, configures its database connection, and starts the app pool.
 
 The steps run in a `Deploy` stage as the `DeployWebsite` deployment job, which targets the Azure DevOps environment `property-management-sql`. The stage uses a sequential lock, so deployments run one at a time. Azure DevOps creates the environment on first run if it does not already exist. Configure approvals, branch control, and an exclusive lock on it in **Pipelines > Environments**. Deployment history appears on the environment page.
 
