@@ -1,0 +1,119 @@
+trigger: none
+pr: none
+
+resources:
+  pipelines:
+    - pipeline: databaseBuild
+      source: azure-pipelines-database
+      trigger:
+        branches:
+          include:
+            - main
+
+pool:
+  name: SelfHosted
+
+variables:
+  - group: PropertyManagement-Sql
+
+stages:
+  - stage: Preview
+    displayName: Preview database deployment
+    jobs:
+      - job: GenerateDeploymentPlan
+        steps:
+          - checkout: none
+
+          - download: databaseBuild
+            artifact: database
+
+          - task: UseDotNet@2
+            displayName: Install .NET SDK
+            inputs:
+              packageType: sdk
+              version: 10.0.x
+
+          - task: PowerShell@2
+            displayName: Generate deployment plan
+            inputs:
+              targetType: inline
+              pwsh: true
+              workingDirectory: $(Pipeline.Workspace)\databaseBuild\database
+              script: |
+                $ErrorActionPreference = 'Stop'
+                dotnet tool restore
+                if ($LASTEXITCODE -ne 0) { throw 'Tool restore failed.' }
+
+                $metadata = Get-Content artifact.json -Raw | ConvertFrom-Json
+                $dacpacHash = (Get-FileHash PropertyManagement.Database.dacpac -Algorithm SHA256).Hash
+                if ($dacpacHash -cne $metadata.DacpacSha256) { throw 'DACPAC checksum mismatch.' }
+
+                .\scripts\Deploy-Database.ps1 `
+                  -Action Preview `
+                  -Dacpac PropertyManagement.Database.dacpac `
+                  -OutputDirectory "$(Build.ArtifactStagingDirectory)\sql-target-plan"
+            env:
+              SQL_DEPLOY_CONNECTION_STRING: $(SqlDeploymentConnectionString)
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish deployment plan
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)\sql-target-plan
+              artifactName: sql-target-plan
+
+  - stage: Deploy
+    displayName: Deploy database
+    dependsOn: Preview
+    condition: succeeded()
+    lockBehavior: sequential
+    jobs:
+      - deployment: PublishDatabase
+        displayName: Publish approved DACPAC
+        environment: property-management-sql
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - download: databaseBuild
+                  artifact: database
+
+                - download: current
+                  artifact: sql-target-plan
+
+                - task: UseDotNet@2
+                  displayName: Install .NET SDK
+                  inputs:
+                    packageType: sdk
+                    version: 10.0.x
+
+                - task: PowerShell@2
+                  displayName: Verify plan and deploy database
+                  inputs:
+                    targetType: inline
+                    pwsh: true
+                    workingDirectory: $(Pipeline.Workspace)\databaseBuild\database
+                    script: |
+                      $ErrorActionPreference = 'Stop'
+                      dotnet tool restore
+                      if ($LASTEXITCODE -ne 0) { throw 'Tool restore failed.' }
+
+                      $metadata = Get-Content artifact.json -Raw | ConvertFrom-Json
+                      $dacpacHash = (Get-FileHash PropertyManagement.Database.dacpac -Algorithm SHA256).Hash
+                      if ($dacpacHash -cne $metadata.DacpacSha256) { throw 'DACPAC checksum mismatch.' }
+
+                      .\scripts\Deploy-Database.ps1 `
+                        -Action Publish `
+                        -Dacpac PropertyManagement.Database.dacpac `
+                        -ApprovedPlan "$(Pipeline.Workspace)\sql-target-plan\plan.json" `
+                        -OutputDirectory "$(Build.ArtifactStagingDirectory)\sql-published-plan"
+                  env:
+                    SQL_DEPLOY_CONNECTION_STRING: $(SqlDeploymentConnectionString)
+
+                - task: PublishPipelineArtifact@1
+                  displayName: Publish deployment result
+                  condition: succeededOrFailed()
+                  inputs:
+                    targetPath: $(Build.ArtifactStagingDirectory)\sql-published-plan
+                    artifactName: sql-published-plan

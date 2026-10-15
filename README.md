@@ -102,6 +102,10 @@ For a minimal web-only build, create a separate Azure Pipeline that points to [a
 
 Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `main` build from the `azure-pipelines-web` pipeline, downloads its `web` artifact, extracts `web.zip` into a `demo` directory, and lists the extracted files.
 
+For separate database delivery, create a pipeline named `azure-pipelines-database` that points to [azure-pipelines-database.yml](azure-pipelines-database.yml). It builds the SQL project on a Microsoft-hosted agent and publishes the DACPAC, safe publish profile, deployment helper, pinned SqlPackage manifest, and checksum metadata as a `database` artifact.
+
+Create a second pipeline named `azure-pipelines-database-deploy` that points to [azure-pipelines-database-deploy.yml](azure-pipelines-database-deploy.yml). It runs on the `SelfHosted` pool after a successful `main` build from `azure-pipelines-database`, generates and publishes a target-specific deployment plan, and then deploys the same checksum-verified DACPAC through the protected `property-management-sql` environment. The pipeline expects the `PropertyManagement-Sql` variable group to contain a secret named `SqlDeploymentConnectionString`. Configure approval and an exclusive lock on the environment before enabling the pipeline.
+
 | Stage | Behavior |
 | --- | --- |
 | `Build` | Restore pinned tools/packages, build the solution with SQL analysis and warnings as errors, publish `database` and `web` artifacts. |

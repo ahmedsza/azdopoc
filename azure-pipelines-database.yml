@@ -1,0 +1,55 @@
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  buildConfiguration: Release
+  databaseProject: database/PropertyManagement.Database/PropertyManagement.Database.sqlproj
+
+steps:
+  - checkout: self
+
+  - task: UseDotNet@2
+    displayName: Install .NET SDK
+    inputs:
+      packageType: sdk
+      version: 10.0.x
+
+  - script: dotnet restore $(databaseProject)
+    displayName: Restore SQL project
+
+  - script: dotnet build $(databaseProject) --configuration $(buildConfiguration) --no-restore -warnaserror
+    displayName: Build SQL project
+
+  - task: PowerShell@2
+    displayName: Package database artifact
+    inputs:
+      targetType: inline
+      pwsh: true
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $destination = "$(Build.ArtifactStagingDirectory)/database"
+
+        foreach ($folder in @('.config', 'scripts', 'database/PropertyManagement.Database/PublishProfiles')) {
+          New-Item -ItemType Directory -Force -Path (Join-Path $destination $folder) | Out-Null
+        }
+
+        Copy-Item "database/PropertyManagement.Database/bin/$(buildConfiguration)/PropertyManagement.Database.dacpac" $destination
+        Copy-Item "database/PropertyManagement.Database/PublishProfiles/Safe.publish.xml" (Join-Path $destination "database/PropertyManagement.Database/PublishProfiles")
+        Copy-Item "scripts/Deploy-Database.ps1" (Join-Path $destination "scripts")
+        Copy-Item ".config/dotnet-tools.json" (Join-Path $destination ".config")
+        Copy-Item "global.json" $destination
+
+        @{
+          BuildId = "$(Build.BuildId)"
+          Commit = "$(Build.SourceVersion)"
+          DacpacSha256 = (Get-FileHash (Join-Path $destination "PropertyManagement.Database.dacpac") -Algorithm SHA256).Hash
+        } | ConvertTo-Json | Set-Content (Join-Path $destination "artifact.json") -Encoding utf8
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish database artifact
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/database
+      artifactName: database
