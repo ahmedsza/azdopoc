@@ -11,7 +11,7 @@ resources:
             - main
 
 pool:
-  vmImage: ubuntu-latest
+  name: Self Hosted
 
 steps:
   - checkout: none
@@ -19,10 +19,30 @@ steps:
   - download: webBuild
     artifact: web
 
-  - script: |
-      mkdir -p "$(Pipeline.Workspace)/demo"
-      unzip "$(Pipeline.Workspace)/webBuild/web/web.zip" -d "$(Pipeline.Workspace)/demo"
+  - task: PowerShell@2
     displayName: Extract website to demo
+    inputs:
+      targetType: inline
+      pwsh: false
+      script: |
+        $demo = Join-Path "$(Pipeline.Workspace)" "demo"
+        if (Test-Path $demo) { Remove-Item $demo -Recurse -Force }
+        New-Item -ItemType Directory -Path $demo -Force | Out-Null
+        Expand-Archive -Path "$(Pipeline.Workspace)\webBuild\web\web.zip" -DestinationPath $demo -Force
 
-  - script: find "$(Pipeline.Workspace)/demo" -type f -print
-    displayName: List demo files
+  - task: PowerShell@2
+    displayName: Copy extracted files to D:\jhbdemo
+    inputs:
+      targetType: inline
+      pwsh: false
+      script: |
+        $target = "D:\jhbdemo"
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Copy-Item -Path (Join-Path "$(Pipeline.Workspace)" "demo\*") -Destination $target -Recurse -Force
+
+  - task: PowerShell@2
+    displayName: List D:\jhbdemo files
+    inputs:
+      targetType: inline
+      pwsh: false
+      script: Get-ChildItem -Path "D:\jhbdemo" -Recurse -File | Select-Object -ExpandProperty FullName
