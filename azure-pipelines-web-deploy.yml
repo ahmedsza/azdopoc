@@ -220,7 +220,7 @@ stages:
                     $connectionDataUrl = "$(System.CollectionUri)_apis/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1"
                     try {
                       $connectionData = Invoke-RestMethod -Uri $connectionDataUrl -Headers $headers -Method Get
-                      $pipelineIdentity = $connectionData.authenticatedUser.providerDisplayName
+                      $pipelineIdentity = $connectionData.authenticatedUser.displayName
                     } catch {
                       $pipelineIdentity = 'the pipeline token identity'
                     }
@@ -241,13 +241,16 @@ stages:
                       Where-Object { $_.name -eq $wikiRepositoryName -and !$_.isDisabled } |
                       Select-Object -First 1
                     if ($null -eq $wikiRepository) {
-                      throw "Repository '$wikiRepositoryName' is not visible to '$pipelineIdentity'. Grant that exact identity Read and Contribute permissions in Wiki security."
+                      Write-Host "##vso[task.logissue type=warning]Repository '$wikiRepositoryName' was not returned by repository enumeration. Trying its direct project-wiki Git URL."
+                      $repositoryLocator = [Uri]::EscapeDataString($wikiRepositoryName)
+                      $wikiBranch = 'wikiMaster'
+                    } else {
+                      $repositoryLocator = $wikiRepository.id
+                      $wikiBranch = $wikiRepository.defaultBranch -replace '^refs/heads/', ''
+                      if ([string]::IsNullOrWhiteSpace($wikiBranch)) { $wikiBranch = 'wikiMaster' }
                     }
 
-                    $repositoryId = $wikiRepository.id
-                    $wikiBranch = $wikiRepository.defaultBranch -replace '^refs/heads/', ''
-                    if ([string]::IsNullOrWhiteSpace($wikiBranch)) { $wikiBranch = 'wikiMaster' }
-                    $wikiUrl = "$(System.CollectionUri)$projectId/_git/$repositoryId"
+                    $wikiUrl = "$(System.CollectionUri)$projectId/_git/$repositoryLocator"
                     $wikiRoot = Join-Path '$(Agent.TempDirectory)' 'property-management-wiki'
                     $pageName = 'Web-Build-$(resources.pipeline.webBuild.runID)-Deployment-$(Build.BuildId)'
                     $pageDirectory = Join-Path $wikiRoot 'Web-Deployment-Release-Notes'
@@ -259,7 +262,9 @@ stages:
                     $env:GIT_CONFIG_KEY_0 = 'http.extraheader'
                     $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
                     git clone --branch $wikiBranch --single-branch $wikiUrl $wikiRoot
-                    if ($LASTEXITCODE -ne 0) { throw 'Could not clone the provisioned project wiki.' }
+                    if ($LASTEXITCODE -ne 0) {
+                      throw "Could not clone repository '$wikiRepositoryName' as '$pipelineIdentity'. Grant that identity Read and Contribute permissions in Wiki security."
+                    }
 
                     New-Item -ItemType Directory -Path $pageDirectory -Force | Out-Null
                     Copy-Item '$(Build.ArtifactStagingDirectory)/release-notes/release-notes.md' $pagePath -Force
