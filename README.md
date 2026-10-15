@@ -36,7 +36,7 @@ dotnet run --project src/PropertyManagement.Web/PropertyManagement.Web.csproj -c
 
 Open **http://localhost:5180**. If that port is occupied, append `-- --urls http://localhost:5181` to the run command.
 
-The top-right **Dark mode** switch is currently a UI-only preview. It toggles on and off with mouse or keyboard, resets on page load, and does not change or save the page theme.
+The top-right **Dark mode** switch changes the page theme immediately with mouse or keyboard. Your preference is saved in this browser across navigation and visits. Without a saved preference, the app uses your system theme. A valid `?scoutTheme=light` or `?scoutTheme=dark` URL parameter overrides the initial theme for previews. If browser storage is unavailable, switching still works for the current page.
 
 The fictional seed contains six properties, five tenants, five leases, and three payments. Dates are relative to the month in which it first runs. It only runs against `PropertyManagementDemo`, inserts transactionally into an empty portfolio, and skips a database that already contains properties or tenants. It never resets existing data.
 

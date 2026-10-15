@@ -13,7 +13,15 @@
     <script>
         (() => {
             const param = new URLSearchParams(window.location.search).get("scoutTheme");
-            const theme = param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+            let saved;
+            try {
+                saved = localStorage.getItem("yardTheme");
+            } catch (error) {
+                console.warn("Unable to read the saved theme preference.", error);
+            }
+            const theme = param === "dark" || param === "light" ? param
+                : saved === "dark" || saved === "light" ? saved
+                : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
             document.documentElement.setAttribute("data-theme", theme);
         })();
     </script>
@@ -37,11 +45,10 @@
             <div class="breadcrumb">Portfolio<span>/</span><strong>@ViewData["Title"]</strong></div>
             <div class="topbar-actions">
                 <span class="demo-label">DEMO</span>
-                <button class="theme-toggle" type="button" id="theme-toggle" role="switch" aria-checked="false" aria-describedby="theme-toggle-description">
+                <button class="theme-toggle" type="button" id="theme-toggle" role="switch" aria-checked="false">
                     <span>Dark mode</span>
                     <span class="theme-toggle-track" aria-hidden="true"></span>
                 </button>
-                <span class="sr-only" id="theme-toggle-description">Preview only. Changing this switch does not change the page theme yet.</span>
             </div>
         </header>
         <main id="content">
