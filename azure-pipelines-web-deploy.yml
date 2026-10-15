@@ -216,23 +216,36 @@ stages:
                       throw 'System.AccessToken is unavailable. Grant the pipeline Build Service identity access to the project wiki.'
                     }
 
-                    $projectId = '$(System.TeamProjectId)'
                     $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
-                    $wikiApiUrl = "$(System.CollectionUri)$projectId/_apis/wiki/wikis?api-version=7.1"
+                    $connectionDataUrl = "$(System.CollectionUri)_apis/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1"
                     try {
-                      $wikiList = Invoke-RestMethod -Uri $wikiApiUrl -Headers $headers -Method Get
+                      $connectionData = Invoke-RestMethod -Uri $connectionDataUrl -Headers $headers -Method Get
+                      $pipelineIdentity = $connectionData.authenticatedUser.providerDisplayName
                     } catch {
-                      throw "Could not query the project's wikis. Verify Wiki read permission for the Build Service identity. $($_.Exception.Message)"
+                      $pipelineIdentity = 'the pipeline token identity'
                     }
-                    $wiki = @($wikiList.value) |
-                      Where-Object { $_.type -eq 'projectWiki' -and !$_.isDisabled } |
+                    if ([string]::IsNullOrWhiteSpace($pipelineIdentity)) {
+                      $pipelineIdentity = 'the pipeline token identity'
+                    }
+                    Write-Host "Pipeline token identity: $pipelineIdentity"
+
+                    $projectId = '$(System.TeamProjectId)'
+                    $wikiRepositoryName = '$(System.TeamProject).wiki'
+                    $repositoriesApiUrl = "$(System.CollectionUri)$projectId/_apis/git/repositories?includeHidden=true&api-version=7.1"
+                    try {
+                      $repositoryList = Invoke-RestMethod -Uri $repositoriesApiUrl -Headers $headers -Method Get
+                    } catch {
+                      throw "Could not query Git repositories as '$pipelineIdentity'. Verify project and Code read permissions. $($_.Exception.Message)"
+                    }
+                    $wikiRepository = @($repositoryList.value) |
+                      Where-Object { $_.name -eq $wikiRepositoryName -and !$_.isDisabled } |
                       Select-Object -First 1
-                    if ($null -eq $wiki) {
-                      throw 'No provisioned project wiki is visible to the pipeline. Create the project wiki and grant the Build Service identity Read and Contribute permissions on its repository.'
+                    if ($null -eq $wikiRepository) {
+                      throw "Repository '$wikiRepositoryName' is not visible to '$pipelineIdentity'. Grant that exact identity Read and Contribute permissions in Wiki security."
                     }
 
-                    $repositoryId = if ($wiki.repositoryId) { $wiki.repositoryId } else { $wiki.id }
-                    $wikiBranch = @($wiki.versions)[0].version
+                    $repositoryId = $wikiRepository.id
+                    $wikiBranch = $wikiRepository.defaultBranch -replace '^refs/heads/', ''
                     if ([string]::IsNullOrWhiteSpace($wikiBranch)) { $wikiBranch = 'wikiMaster' }
                     $wikiUrl = "$(System.CollectionUri)$projectId/_git/$repositoryId"
                     $wikiRoot = Join-Path '$(Agent.TempDirectory)' 'property-management-wiki'
