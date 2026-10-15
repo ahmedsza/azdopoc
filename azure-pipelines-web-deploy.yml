@@ -14,10 +14,15 @@ pool:
   name: SelfHosted
 
 variables:
-  siteName: jhbdemo
-  appPoolName: jhbdemo
-  sitePath: D:\jhbdemo
-  sitePort: 8080
+  - group: PropertyManagement-Sql
+  - name: siteName
+    value: jhbdemo
+  - name: appPoolName
+    value: jhbdemo
+  - name: sitePath
+    value: D:\jhbdemo
+  - name: sitePort
+    value: 8080
 
 steps:
   - checkout: none
@@ -76,6 +81,28 @@ steps:
         Start-Sleep -Seconds 5  # give w3wp time to release file locks
         Copy-Item -Path (Join-Path "$(Pipeline.Workspace)" "demo\*") -Destination "$(sitePath)" -Recurse -Force
         icacls "$(sitePath)" /grant "IIS AppPool\$(appPoolName):(OI)(CI)RX" /T /Q | Out-Null
+
+  - task: PowerShell@2
+    displayName: Configure website database connection
+    inputs:
+      targetType: inline
+      pwsh: false
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $connectionString = $env:WEB_SQL_CONNECTION_STRING
+        if ([string]::IsNullOrWhiteSpace($connectionString) -or $connectionString -match '^\$\(.+\)$') {
+          throw 'Configure the secret SqlDeploymentConnectionString in the PropertyManagement-Sql variable group.'
+        }
+
+        $path = Join-Path "$(sitePath)" "appsettings.json"
+        $settings = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        if ($null -eq $settings.ConnectionStrings) {
+          $settings | Add-Member -NotePropertyName ConnectionStrings -NotePropertyValue ([pscustomobject]@{}) -Force
+        }
+        $settings.ConnectionStrings | Add-Member -NotePropertyName PropertyManagement -NotePropertyValue $connectionString -Force
+        $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding UTF8
+    env:
+      WEB_SQL_CONNECTION_STRING: $(SqlDeploymentConnectionString)
 
   - task: IISWebAppManagementOnMachineGroup@0
     displayName: Start app pool

@@ -100,7 +100,15 @@ Reference: [Microsoft SQL Database Projects getting started](https://learn.micro
 
 For a minimal web-only build, create a separate Azure Pipeline that points to [azure-pipelines-web.yml](azure-pipelines-web.yml). It builds the .NET website and publishes the deployable output as `web.zip` in a pipeline artifact named `web`.
 
-Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `main` build from the `azure-pipelines-web` pipeline, downloads its `web` artifact, extracts `web.zip` into a `demo` directory, and lists the extracted files.
+Create another pipeline named `azure-pipelines-web-deploy` that points to [azure-pipelines-web-deploy.yml](azure-pipelines-web-deploy.yml). It runs after a successful `main` build from the `azure-pipelines-web` pipeline on the `SelfHosted` pool. It extracts `web.zip`, creates or updates the IIS website and app pool, copies the website to `D:\jhbdemo`, configures its database connection, and starts the app pool.
+
+Before running the website deployment:
+
+1. Use the existing `PropertyManagement-Sql` variable group in Azure DevOps **Pipelines > Library**, with `SqlDeploymentConnectionString` marked as a **secret**. Authorize the website deployment pipeline to use the group as well as the database deployment pipeline, and restrict deployment resources to trusted branches.
+2. The website currently uses the same connection-string secret as database deployment. For the local SQL container on the IIS host, the format is `Server=localhost,1433;Database=PropertyManagementDemo;User ID=<SQL_LOGIN>;Password=<SQL_PASSWORD>;Encrypt=True;TrustServerCertificate=True;`. Replace the placeholders with the configured credentials. For shared or production use, separate the application identity from the schema-deployment identity and use trusted certificates.
+3. Ensure IIS runs in `Production` and can reach the SQL server. If SQL runs on another machine, replace `localhost` with its reachable hostname or IP.
+
+The deployment passes the secret through a task environment variable and writes `ConnectionStrings:PropertyManagement` to the deployed `appsettings.json` after copying the files and before starting the app pool. Missing or unresolved secrets fail the configuration step. Other settings and connection strings are preserved. The build artifact is not modified or republished, and the secret is not printed. The value remains in plaintext on the IIS server: restrict filesystem access to administrators, the deployment identity, and the app pool identity. Do not upload the deployed configuration as an artifact.
 
 For separate database delivery, create a pipeline named `azure-pipelines-database` that points to [azure-pipelines-database.yml](azure-pipelines-database.yml). It builds the SQL project on a Microsoft-hosted agent and publishes the DACPAC, safe publish profile, deployment helper, pinned SqlPackage manifest, and checksum metadata as a `database` artifact.
 
