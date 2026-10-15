@@ -6,6 +6,8 @@ pool:
 variables:
   buildConfiguration: Release
   webProject: src/PropertyManagement.Web/PropertyManagement.Web.csproj
+  testProject: tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj
+  testResultsDirectory: $(Agent.TempDirectory)/unit-test-results
 
 steps:
   - checkout: self
@@ -16,11 +18,40 @@ steps:
       packageType: sdk
       version: 10.0.x
 
-  - script: dotnet restore $(webProject)
-    displayName: Restore
+  - script: dotnet restore $(testProject)
+    displayName: Restore website and test dependencies
 
   - script: dotnet build $(webProject) --configuration $(buildConfiguration) --no-restore
     displayName: Build
+
+  - script: >
+      dotnet test $(testProject)
+      --configuration $(buildConfiguration)
+      --no-restore
+      --filter "TestCategory=Unit"
+      --logger "trx;LogFileName=unit-tests.trx"
+      --results-directory "$(testResultsDirectory)"
+      --collect "XPlat Code Coverage"
+      --settings tests/PropertyManagement.Tests/unit-coverage.runsettings
+    displayName: Run unit tests with code coverage
+
+  - task: PublishTestResults@2
+    displayName: Publish unit test results
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: VSTest
+      testResultsFiles: $(testResultsDirectory)/**/*.trx
+      failTaskOnFailedTests: true
+      failTaskOnMissingResultsFile: true
+      testRunTitle: Web unit tests
+
+  - task: PublishCodeCoverageResults@2
+    displayName: Publish unit test code coverage
+    condition: succeededOrFailed()
+    inputs:
+      summaryFileLocation: $(testResultsDirectory)/**/coverage.cobertura.xml
+      pathToSources: $(Build.SourcesDirectory)
+      failIfCoverageEmpty: true
 
   - script: dotnet publish $(webProject) --configuration $(buildConfiguration) --no-build --output $(Build.ArtifactStagingDirectory)/web
     displayName: Publish website

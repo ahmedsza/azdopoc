@@ -160,6 +160,16 @@ Run only the unit tests:
 dotnet test tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj -c Release --filter "TestCategory=Unit" -warnaserror
 ```
 
+[azure-pipelines-web.yml](azure-pipelines-web.yml) runs only these unit tests, publishes TRX results to the pipeline's **Tests** tab, and publishes Cobertura results and an HTML report through `PublishCodeCoverageResults@2` to **Code Coverage**. Results are published even when tests fail; failed tests or missing reports fail the pipeline and prevent website packaging.
+
+To collect the same coverage locally:
+
+```powershell
+dotnet test tests/PropertyManagement.Tests/PropertyManagement.Tests.csproj -c Release --filter "TestCategory=Unit" --collect "XPlat Code Coverage" --settings tests/PropertyManagement.Tests/unit-coverage.runsettings --logger "trx;LogFileName=unit-tests.trx" --results-directory artifacts/unit-test-results
+```
+
+The [coverage settings](tests/PropertyManagement.Tests/unit-coverage.runsettings) include web application code and the arithmetic test class, since the introductory arithmetic examples contain their logic inside the tests. Database integration test code is excluded from coverage. Covered arithmetic examples do **not** imply coverage of application business logic; untested web code will still appear as uncovered.
+
 ### Database Integration Tests
 
 ```powershell
