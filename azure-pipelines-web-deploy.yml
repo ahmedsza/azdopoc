@@ -2,6 +2,11 @@ trigger: none
 pr: none
 
 resources:
+  repositories:
+    - repository: projectWiki
+      type: git
+      name: coj/coj.wiki
+      ref: refs/heads/wikiMaster
   pipelines:
     - pipeline: webBuild
       source: azure-pipelines-web
@@ -36,7 +41,12 @@ stages:
           runOnce:
             deploy:
               steps:
-              - checkout: none
+              - checkout: projectWiki
+                displayName: Check out authorized project wiki
+                path: s/project-wiki
+                clean: true
+                fetchDepth: 0
+                persistCredentials: false
 
               - download: webBuild
                 artifact: web
@@ -216,55 +226,21 @@ stages:
                       throw 'System.AccessToken is unavailable. Grant the pipeline Build Service identity access to the project wiki.'
                     }
 
-                    $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
-                    $connectionDataUrl = "$(System.CollectionUri)_apis/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1"
-                    try {
-                      $connectionData = Invoke-RestMethod -Uri $connectionDataUrl -Headers $headers -Method Get
-                      $pipelineIdentity = $connectionData.authenticatedUser.displayName
-                    } catch {
-                      $pipelineIdentity = 'the pipeline token identity'
-                    }
-                    if ([string]::IsNullOrWhiteSpace($pipelineIdentity)) {
-                      $pipelineIdentity = 'the pipeline token identity'
-                    }
-                    Write-Host "Pipeline token identity: $pipelineIdentity"
-
-                    $projectId = '$(System.TeamProjectId)'
-                    $wikiRepositoryName = '$(System.TeamProject).wiki'
-                    $repositoriesApiUrl = "$(System.CollectionUri)$projectId/_apis/git/repositories?includeHidden=true&api-version=7.1"
-                    try {
-                      $repositoryList = Invoke-RestMethod -Uri $repositoriesApiUrl -Headers $headers -Method Get
-                    } catch {
-                      throw "Could not query Git repositories as '$pipelineIdentity'. Verify project and Code read permissions. $($_.Exception.Message)"
-                    }
-                    $wikiRepository = @($repositoryList.value) |
-                      Where-Object { $_.name -eq $wikiRepositoryName -and !$_.isDisabled } |
-                      Select-Object -First 1
-                    if ($null -eq $wikiRepository) {
-                      Write-Host "##vso[task.logissue type=warning]Repository '$wikiRepositoryName' was not returned by repository enumeration. Trying its direct project-wiki Git URL."
-                      $repositoryLocator = [Uri]::EscapeDataString($wikiRepositoryName)
-                      $wikiBranch = 'wikiMaster'
-                    } else {
-                      $repositoryLocator = $wikiRepository.id
-                      $wikiBranch = $wikiRepository.defaultBranch -replace '^refs/heads/', ''
-                      if ([string]::IsNullOrWhiteSpace($wikiBranch)) { $wikiBranch = 'wikiMaster' }
+                    $wikiRoot = Join-Path '$(Pipeline.Workspace)' 's/project-wiki'
+                    $wikiBranch = 'wikiMaster'
+                    if (!(Test-Path -LiteralPath (Join-Path $wikiRoot '.git'))) {
+                      throw 'The projectWiki checkout is missing. Authorize coj/coj.wiki for this pipeline and verify the checkout step succeeded.'
                     }
 
-                    $wikiUrl = "$(System.CollectionUri)$projectId/_git/$repositoryLocator"
-                    $wikiRoot = Join-Path '$(Agent.TempDirectory)' 'property-management-wiki'
                     $pageName = 'Web-Build-$(resources.pipeline.webBuild.runID)-Deployment-$(Build.BuildId)'
                     $pageDirectory = Join-Path $wikiRoot 'Web-Deployment-Release-Notes'
                     $pagePath = Join-Path $pageDirectory "$pageName.md"
                     $indexPath = Join-Path $wikiRoot 'Web-Deployment-Release-Notes.md'
 
-                    if (Test-Path $wikiRoot) { Remove-Item $wikiRoot -Recurse -Force }
+                    $env:GIT_TERMINAL_PROMPT = '0'
                     $env:GIT_CONFIG_COUNT = '1'
                     $env:GIT_CONFIG_KEY_0 = 'http.extraheader'
                     $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
-                    git clone --branch $wikiBranch --single-branch $wikiUrl $wikiRoot
-                    if ($LASTEXITCODE -ne 0) {
-                      throw "Could not clone repository '$wikiRepositoryName' as '$pipelineIdentity'. Grant that identity Read and Contribute permissions in Wiki security."
-                    }
 
                     New-Item -ItemType Directory -Path $pageDirectory -Force | Out-Null
                     Copy-Item '$(Build.ArtifactStagingDirectory)/release-notes/release-notes.md' $pagePath -Force
@@ -283,7 +259,10 @@ stages:
                     $pages | Set-Content (Join-Path $pageDirectory '.order') -Encoding utf8
 
                     $rootOrderPath = Join-Path $wikiRoot '.order'
-                    $rootOrder = if (Test-Path $rootOrderPath) { @(Get-Content $rootOrderPath) } else { @() }
+                    $rootOrder = @()
+                    if (Test-Path $rootOrderPath) {
+                      $rootOrder = @(Get-Content $rootOrderPath)
+                    }
                     if ($rootOrder -notcontains 'Web-Deployment-Release-Notes') {
                       $rootOrder += 'Web-Deployment-Release-Notes'
                       $rootOrder | Set-Content $rootOrderPath -Encoding utf8
@@ -304,7 +283,7 @@ stages:
                     git -C $wikiRoot pull --rebase origin $wikiBranch
                     if ($LASTEXITCODE -ne 0) { throw 'Could not rebase the wiki update.' }
                     git -C $wikiRoot push origin "HEAD:$wikiBranch"
-                    if ($LASTEXITCODE -ne 0) { throw 'Could not push the wiki update.' }
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not push the wiki update. Verify Contribute permission for the job Build Service identity in Wiki security.' }
                 env:
                   SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
